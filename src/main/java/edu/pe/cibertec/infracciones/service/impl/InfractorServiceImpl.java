@@ -4,9 +4,12 @@ import edu.pe.cibertec.infracciones.dto.InfractorRequestDTO;
 import edu.pe.cibertec.infracciones.dto.InfractorResponseDTO;
 import edu.pe.cibertec.infracciones.exception.InfractorNotFoundException;
 import edu.pe.cibertec.infracciones.exception.VehiculoNotFoundException;
+import edu.pe.cibertec.infracciones.model.EstadoMulta;
 import edu.pe.cibertec.infracciones.model.Infractor;
+import edu.pe.cibertec.infracciones.model.Multa;
 import edu.pe.cibertec.infracciones.model.Vehiculo;
 import edu.pe.cibertec.infracciones.repository.InfractorRepository;
+import edu.pe.cibertec.infracciones.repository.MultaRepository;
 import edu.pe.cibertec.infracciones.repository.VehiculoRepository;
 import edu.pe.cibertec.infracciones.service.IInfractorService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ public class InfractorServiceImpl implements IInfractorService {
 
     private final InfractorRepository infractorRepository;
     private final VehiculoRepository vehiculoRepository;
+    private final MultaRepository multaRepository;
 
     @Override
     public InfractorResponseDTO registrarInfractor(InfractorRequestDTO dto) {
@@ -56,6 +60,48 @@ public class InfractorServiceImpl implements IInfractorService {
         infractorRepository.save(infractor);
     }
 
+
+    @Override
+    public Double calcularDeuda(Long infractorId) {
+        infractorRepository.findById(infractorId)
+                .orElseThrow(() -> new InfractorNotFoundException(infractorId));
+
+        List<Multa> multasPendientes = multaRepository.findByInfractor_IdAndEstado(infractorId, EstadoMulta.PENDIENTE);
+        List<Multa> multasVencidas = multaRepository.findByInfractor_IdAndEstado(infractorId, EstadoMulta.VENCIDA);
+
+        double totalPendientes = multasPendientes.stream().mapToDouble(Multa::getMonto).sum();
+        double totalVencidas = multasVencidas.stream().mapToDouble(Multa::getMonto).sum() * 1.15;
+
+        return totalPendientes + totalVencidas;
+    }
+
+    @Override
+    public void desasignarVehiculo(Long infractorId, Long vehiculoId) {
+        Infractor infractor = infractorRepository.findById(infractorId)
+                .orElseThrow(() -> new InfractorNotFoundException(infractorId));
+
+        Vehiculo vehiculo = vehiculoRepository.findById(vehiculoId)
+                .orElseThrow(() -> new VehiculoNotFoundException(vehiculoId));
+
+        List<Multa> multasPendientes = multaRepository.findByInfractor_IdAndVehiculo_IdAndEstado(
+                infractorId, vehiculoId, EstadoMulta.PENDIENTE);
+
+        if (!multasPendientes.isEmpty()) {
+            throw new RuntimeException("El vehiculo tiene multas pendientes activas");
+        }
+
+        infractor.getVehiculos().remove(vehiculo);
+        infractorRepository.save(infractor);
+
+        if (vehiculo.isSuspendido()) {
+            List<Multa> multasPendientesVehiculo = multaRepository.findByVehiculo_IdAndEstado(
+                    vehiculoId, EstadoMulta.PENDIENTE);
+            if (multasPendientesVehiculo.isEmpty()) {
+                vehiculo.setSuspendido(false);
+                vehiculoRepository.save(vehiculo);
+            }
+        }
+    }
 
     private InfractorResponseDTO mapToResponse(Infractor infractor) {
         InfractorResponseDTO dto = new InfractorResponseDTO();
