@@ -17,4 +17,4 @@ jobs:
           distribution: 'temurin'
 
       - name: Ejecutar tests
-        run: mvn test -Dtest="InfractorServiceTest,MultaServiceTest" -Dsurefire.failIfNoSpecifiedTests=false --no-transfer-progress
+        run: mvn test --no-transfer-progress
